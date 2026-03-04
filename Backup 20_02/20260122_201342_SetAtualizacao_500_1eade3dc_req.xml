@@ -1,0 +1,18 @@
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+                  xmlns:urn="urn:GSC_RF010_FornecedorExterno_V401_WS">
+  <soapenv:Header>
+    <urn:AuthenticationInfo>
+      <urn:userName>USR_PETACORP2</urn:userName>
+      <urn:password>PETACORP1234</urn:password>
+    </urn:AuthenticationInfo>
+  </soapenv:Header>
+  <soapenv:Body>
+    <urn:SetAtualizacao>
+  <urn:No_REQ>REQ000026881601</urn:No_REQ>
+  <urn:No_WO>WO0000031765700</urn:No_WO>
+  <urn:Descricao>Status alterado para CONCLUIDO no GLPI</urn:Descricao>
+  <urn:ChamadoFornecedor>GLPI-2026000115</urn:ChamadoFornecedor>
+  <urn:status_fornecedor>CONCLUIDO</urn:status_fornecedor>
+</urn:SetAtualizacao>
+  </soapenv:Body>
+</soapenv:Envelope>
