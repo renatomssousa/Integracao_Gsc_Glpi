@@ -18,7 +18,7 @@ GLPI_USER_TOKEN = "jSUU9OT2DvF67PPz5xG15aIqKID1gwTDCfKsvoBy"
 GLPI_CATEGORIA_ID = 7
 
 # Entidade padrão (entities_id)
-GLPI_ENTITIES_ID = 6
+GLPI_ENTITIES_ID = 4
 
 # SSL
 GLPI_VERIFY_SSL = False
@@ -41,16 +41,6 @@ CAIXA_TOKEN = "IDGAA5V0F9OUSATDXCY3TCV2UTGOZL"
 CAIXA_QUALIFICATION = "CPY000000075749"
 
 CAIXA_TIMEOUT_SECONDS = 60
-
-# ======================================================
-# CAIXA – IDENTIFICAÇÃO DO FORNECEDOR (SIGSC)
-# ======================================================
-
-# ID do fornecedor no SIGSC (aparece no XML como <urn:idfornecedor>)
-CAIXA_ID_FORNECEDOR = "SGP000000124811"
-
-# Nome do fornecedor no SIGSC (aparece no XML como <urn:nomefornecedor>)
-CAIXA_NOME_FORNECEDOR = "PETACORP"
 
 # ======================================================
 # COMPATIBILIDADE COM ARQUIVOS ANTIGOS (NÃO REMOVER)

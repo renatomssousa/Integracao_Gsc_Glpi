@@ -1,14 +1,11 @@
-# utils.py
 from __future__ import annotations
 
+import html
 import re
+from typing import Optional
 
 
 def limpar_texto_xml(texto: str) -> str:
-    """
-    - Remove caracteres de controle proibidos em XML 1.0 (exceto tab, CR, LF)
-    - Faz escapes básicos (& < > " ')
-    """
     if texto is None:
         return ""
 
@@ -25,22 +22,21 @@ def limpar_texto_xml(texto: str) -> str:
     return texto.strip()
 
 
-def limpar_html_glpi(texto: str) -> str:
-    """
-    Remove tags HTML que o GLPI costuma gravar em followups (<p>, <br>, etc).
-    """
+def html_para_texto(texto: Optional[str]) -> str:
     if not texto:
         return ""
 
-    s = str(texto)
+    s = html.unescape(str(texto))
+    s = s.replace("\xa0", " ")
 
-    # troca <br> por \n antes de remover tags, para não "colar" linhas
     s = re.sub(r"(?i)<br\s*/?>", "\n", s)
+    s = re.sub(r"(?i)</p\s*>", "\n", s)
+    s = re.sub(r"(?i)</div\s*>", "\n", s)
+    s = re.sub(r"<[^>]+>", " ", s)
 
-    # remove tags
-    s = re.sub(r"<[^>]+>", "", s)
-
-    # normaliza espaços/linhas
-    s = s.replace("\r\n", "\n").replace("\r", "\n")
+    s = re.sub(r"\r\n?", "\n", s)
+    s = re.sub(r"[ \t\f\v]+", " ", s)
+    s = re.sub(r"\n[ \t]+", "\n", s)
     s = re.sub(r"\n{3,}", "\n\n", s)
+
     return s.strip()

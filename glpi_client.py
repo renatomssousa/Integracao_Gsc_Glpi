@@ -1,10 +1,8 @@
-# glpi_client.py
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
 import base64
 import json
-import re
 from io import BytesIO
 from typing import Any, Dict, Optional, List
 
@@ -19,20 +17,28 @@ from config import (
 )
 
 SESSION_TOKEN: Optional[str] = None
+DEFAULT_TIMEOUT = 60
 
 
-def _headers() -> Dict[str, str]:
-    return {
+def _base_headers(include_json: bool = True) -> Dict[str, str]:
+    headers = {
         "App-Token": GLPI_APP_TOKEN,
         "Authorization": f"user_token {GLPI_USER_TOKEN}",
-        "Content-Type": "application/json",
     }
+    if include_json:
+        headers["Content-Type"] = "application/json"
+    return headers
 
 
 def init_session() -> str:
     global SESSION_TOKEN
     url = f"{GLPI_API_URL}/initSession"
-    r = requests.get(url, headers=_headers(), verify=GLPI_VERIFY_SSL)
+    r = requests.get(
+        url,
+        headers=_base_headers(),
+        verify=GLPI_VERIFY_SSL,
+        timeout=DEFAULT_TIMEOUT,
+    )
     r.raise_for_status()
     SESSION_TOKEN = r.json().get("session_token")
     if not SESSION_TOKEN:
@@ -47,32 +53,66 @@ def kill_session() -> None:
     try:
         requests.get(
             f"{GLPI_API_URL}/killSession",
-            headers={**_headers(), "Session-Token": SESSION_TOKEN},
+            headers={**_base_headers(), "Session-Token": SESSION_TOKEN},
             verify=GLPI_VERIFY_SSL,
+            timeout=DEFAULT_TIMEOUT,
         )
     except Exception:
         pass
     SESSION_TOKEN = None
 
 
-def _auth_headers() -> Dict[str, str]:
+def _auth_headers(include_json: bool = True) -> Dict[str, str]:
     if not SESSION_TOKEN:
         init_session()
-    h = _headers()
-    h["Session-Token"] = SESSION_TOKEN
-    return h
+    headers = _base_headers(include_json=include_json)
+    headers["Session-Token"] = SESSION_TOKEN
+    return headers
 
 
-def criar_ticket(titulo: str, descricao: str) -> int:
-    r = requests.post(
-        f"{GLPI_API_URL}/Ticket",
-        headers=_auth_headers(),
+def _request(method: str, path: str, *, headers: Optional[Dict[str, str]] = None, **kwargs):
+    global SESSION_TOKEN
+
+    url = f"{GLPI_API_URL}{path}"
+    req_headers = dict(headers) if headers is not None else _auth_headers()
+
+    r = requests.request(
+        method=method,
+        url=url,
+        headers=req_headers,
         verify=GLPI_VERIFY_SSL,
+        timeout=DEFAULT_TIMEOUT,
+        **kwargs,
+    )
+
+    if r.status_code in (401, 403):
+        body = (r.text or "").lower()
+        if "session" in body or "token" in body or "error_session_token_invalid" in body:
+            init_session()
+            req_headers = dict(headers) if headers is not None else _auth_headers()
+            req_headers["Session-Token"] = SESSION_TOKEN
+            r = requests.request(
+                method=method,
+                url=url,
+                headers=req_headers,
+                verify=GLPI_VERIFY_SSL,
+                timeout=DEFAULT_TIMEOUT,
+                **kwargs,
+            )
+
+    return r
+
+
+def criar_ticket(titulo: str, descricao: str, itilcategories_id: int = 7) -> int:
+    r = _request(
+        "POST",
+        "/Ticket",
         json={
             "input": {
                 "name": titulo,
                 "content": descricao,
                 "entities_id": GLPI_ENTITIES_ID,
+                "itilcategories_id": itilcategories_id,
             }
         },
     )
@@ -80,17 +120,16 @@ def criar_ticket(titulo: str, descricao: str) -> int:
     return int(r.json()["id"])
 
 
-def buscar_tickets_caixa_por_categoria(itilcategories_id: int) -> List[Dict[str, Any]]:
-    r = requests.get(
-        f"{GLPI_API_URL}/search/Ticket",
-        headers=_auth_headers(),
-        verify=GLPI_VERIFY_SSL,
+def buscar_tickets_caixa_por_categoria(itilcategories_id: int = 7) -> List[Dict[str, Any]]:
+    r = _request(
+        "GET",
+        "/search/Ticket",
         params={
-            "criteria[0][field]": 7,  # itilcategories_id
+            "criteria[0][field]": 7,
             "criteria[0][searchtype]": "equals",
             "criteria[0][value]": str(itilcategories_id),
-            "forcedisplay[0]": "2",   # id
-            "forcedisplay[1]": "12",  # status
+            "forcedisplay[0]": "2",
+            "forcedisplay[1]": "12",
             "range": "0-200",
         },
     )
@@ -99,11 +138,7 @@ def buscar_tickets_caixa_por_categoria(itilcategories_id: int) -> List[Dict[str,
 
 
 def buscar_status_ticket(ticket_id: int) -> Optional[str]:
-    r = requests.get(
-        f"{GLPI_API_URL}/Ticket/{ticket_id}",
-        headers=_auth_headers(),
-        verify=GLPI_VERIFY_SSL,
-    )
+    r = _request("GET", f"/Ticket/{ticket_id}")
     if r.status_code != 200:
         return None
 
@@ -120,22 +155,19 @@ def buscar_status_ticket(ticket_id: int) -> Optional[str]:
 
 
 def atualizar_status_ticket(ticket_id: int, status_id: int) -> None:
-    r = requests.put(
-        f"{GLPI_API_URL}/Ticket/{ticket_id}",
-        headers=_auth_headers(),
-        verify=GLPI_VERIFY_SSL,
+    r = _request(
+        "PUT",
+        f"/Ticket/{ticket_id}",
         json={"input": {"id": ticket_id, "status": int(status_id)}},
     )
-    # não quebra o loop por causa disso
     if r.status_code not in (200, 201):
         return
 
 
 def adicionar_followup_publico(ticket_id: int, texto: str) -> int:
-    r = requests.post(
-        f"{GLPI_API_URL}/Ticket/{ticket_id}/ITILFollowup",
-        headers=_auth_headers(),
-        verify=GLPI_VERIFY_SSL,
+    r = _request(
+        "POST",
+        f"/Ticket/{ticket_id}/ITILFollowup",
         json={
             "input": {
                 "itemtype": "Ticket",
@@ -145,23 +177,79 @@ def adicionar_followup_publico(ticket_id: int, texto: str) -> int:
             }
         },
     )
+    if r.status_code >= 400:
+        raise Exception(f"Erro ao criar followup: status={r.status_code} body={r.text}")
     r.raise_for_status()
     return int(r.json()["id"])
 
 
 def listar_followups(ticket_id: int) -> List[Dict[str, Any]]:
-    r = requests.get(
-        f"{GLPI_API_URL}/Ticket/{ticket_id}/ITILFollowup",
-        headers=_auth_headers(),
-        verify=GLPI_VERIFY_SSL,
-    )
+    r = _request("GET", f"/Ticket/{ticket_id}/ITILFollowup")
     r.raise_for_status()
     data = r.json()
     return data if isinstance(data, list) else data.get("data", [])
 
 
-def _clean_b64(s: str) -> str:
-    return re.sub(r"\s+", "", s or "").strip()
+def criar_documento_base64(filename: str, base64_file: str) -> int:
+    if not SESSION_TOKEN:
+        init_session()
+
+    file_bytes = base64.b64decode(base64_file)
+
+    files = {
+        "uploadManifest": (
+            None,
+            json.dumps({
+                "input": {
+                    "name": filename,
+                    "_filename": [filename],
+                    "entities_id": GLPI_ENTITIES_ID,
+                }
+            }),
+            "application/json",
+        ),
+        "filename[0]": (filename, BytesIO(file_bytes)),
+    }
+
+    r = _request(
+        "POST",
+        "/Document",
+        headers=_auth_headers(include_json=False),
+        files=files,
+    )
+
+    if r.status_code >= 400:
+        raise Exception(f"Erro ao criar documento no GLPI: status={r.status_code} body={r.text}")
+
+    r.raise_for_status()
+    body = r.json()
+    doc_id = body.get("id")
+    if not doc_id:
+        raise Exception(f"GLPI nao retornou id do documento: {body}")
+    return int(doc_id)
+
+
+def vincular_documento_item(doc_id: int, itemtype: str, items_id: int) -> int:
+    r = _request(
+        "POST",
+        "/Document_Item",
+        json={
+            "input": {
+                "documents_id": int(doc_id),
+                "itemtype": itemtype,
+                "items_id": int(items_id),
+            }
+        },
+    )
+
+    if r.status_code >= 400:
+        raise Exception(
+            f"Erro ao vincular documento ao item: status={r.status_code} body={r.text}"
+        )
+
+    r.raise_for_status()
+    body = r.json()
+    return int(body.get("id", 0) or 0)
 
 
 def adicionar_followup_com_anexo(
@@ -170,97 +258,40 @@ def adicionar_followup_com_anexo(
     filename: str,
     base64_file: str,
 ) -> int:
-    """
-    Followup + upload no mesmo request (arquivo fica no corpo/historico do chamado)
-
-    Correção aplicada:
-    - Índices coerentes entre "files" e "uploadManifest"
-    - Base64 limpo (remove quebras/espacos)
-    """
     if not SESSION_TOKEN:
         init_session()
 
-    b64 = _clean_b64(base64_file)
-    file_bytes = base64.b64decode(b64)
+    file_bytes = base64.b64decode(base64_file)
 
-    # índice 0
     files = {
-        "_filename[0]": (filename, BytesIO(file_bytes)),
-    }
-
-    data = {
-        "input": json.dumps(
-            {
-                "itemtype": "Ticket",
-                "items_id": ticket_id,
-                "content": texto,
-                "is_private": 0,
-            }
-        ),
-        "uploadManifest": json.dumps(
-            {
-                "files": {
-                    "0": {"name": filename}
+        "uploadManifest": (
+            None,
+            json.dumps({
+                "input": {
+                    "itemtype": "Ticket",
+                    "items_id": str(ticket_id),
+                    "content": texto,
+                    "is_private": 0
                 }
-            }
+            })
         ),
+        "filename[]": (filename, BytesIO(file_bytes)),
     }
 
-    r = requests.post(
-        f"{GLPI_API_URL}/Ticket/{ticket_id}/ITILFollowup",
-        headers={
-            "App-Token": GLPI_APP_TOKEN,
-            "Authorization": f"user_token {GLPI_USER_TOKEN}",
-            "Session-Token": SESSION_TOKEN,
-        },
+    r = _request(
+        "POST",
+        "/TicketFollowup",
+        headers=_auth_headers(include_json=False),
         files=files,
-        data=data,
-        verify=GLPI_VERIFY_SSL,
     )
+
+    if r.status_code >= 400:
+        raise Exception(f"Erro ao criar followup com anexo: status={r.status_code} body={r.text}")
+
     r.raise_for_status()
-    return int(r.json()["id"])
 
+    body = r.json()
+    if isinstance(body, dict) and "id" in body:
+        return int(body["id"])
 
-def listar_documentos_ticket(ticket_id: int) -> List[Dict[str, Any]]:
-    r = requests.get(
-        f"{GLPI_API_URL}/Ticket/{ticket_id}/Document_Item",
-        headers=_auth_headers(),
-        verify=GLPI_VERIFY_SSL,
-    )
-    if r.status_code != 200:
-        return []
-    data = r.json()
-    return data if isinstance(data, list) else data.get("data", [])
-
-
-def baixar_documento_base64(doc_id: int) -> str:
-    """
-    Baixa o binário do documento e retorna Base64.
-    Tenta:
-      1) /Document/{id}?alt=media
-      2) /Document/{id}/download
-    """
-    h = _auth_headers()
-
-    r = requests.get(
-        f"{GLPI_API_URL}/Document/{doc_id}",
-        headers=h,
-        params={"alt": "media"},
-        verify=GLPI_VERIFY_SSL,
-        stream=True,
-    )
-
-    content_type = (r.headers.get("Content-Type") or "").lower()
-    if r.status_code == 200 and "application/json" not in content_type:
-        return base64.b64encode(r.content).decode("ascii")
-
-    r2 = requests.get(
-        f"{GLPI_API_URL}/Document/{doc_id}/download",
-        headers=h,
-        verify=GLPI_VERIFY_SSL,
-        stream=True,
-    )
-    if r2.status_code == 200:
-        return base64.b64encode(r2.content).decode("ascii")
-
-    raise Exception(f"Falha ao baixar Document/{doc_id} (status {r.status_code}/{r2.status_code})")
+    raise Exception(f"GLPI nao retornou id do followup: {body}")

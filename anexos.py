@@ -1,10 +1,13 @@
-# anexos.py
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
 
 def extrair_anexos_do_xml(reiteracao: Dict[str, Any]) -> Optional[List[Dict[str, str]]]:
+    """
+    Mantido como estava no seu fluxo: processors preenche 'anexos' no dict quando existir.
+    Aqui só normaliza caso venha em outro formato.
+    """
     anexos = reiteracao.get("anexos")
     if not anexos:
         return None

@@ -1,4 +1,3 @@
-# caixa_client.py
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
@@ -18,8 +17,6 @@ from config import (
     CAIXA_TOKEN,
     CAIXA_QUALIFICATION,
     CAIXA_TIMEOUT_SECONDS,
-    CAIXA_ID_FORNECEDOR,
-    CAIXA_NOME_FORNECEDOR,
 )
 
 from utils import limpar_texto_xml
@@ -28,6 +25,9 @@ MAX_RETRIES = 3
 BACKOFF_SECONDS = [5, 15, 45]
 LOG_DIR = "logs"
 os.makedirs(LOG_DIR, exist_ok=True)
+
+CAIXA_ID_FORNECEDOR = os.getenv("CAIXA_ID_FORNECEDOR", "SGP000000124811")
+CAIXA_NOME_FORNECEDOR = os.getenv("CAIXA_NOME_FORNECEDOR", "PETACORP")
 
 
 def bool_tf(v: bool) -> str:
@@ -55,7 +55,7 @@ class CaixaSoapFault(Exception):
 
 
 class CaixaFinalError(Exception):
-    """Erro final (sem retry): ex. ERROR (10000) chamado cancelado/finalizado na CAIXA."""
+    pass
 
 
 def _extract_fault(resp_text: str) -> Optional[tuple[str, str]]:
@@ -108,11 +108,11 @@ def _save_req_resp(metodo: str, req_xml: str, resp_text: str, http_status: int) 
         f.write(resp_text)
 
 
-def _log_retorno(soap_response_xml: str) -> None:
+def _log_retorno_tipo4(soap_response_xml: str) -> None:
     try:
         root = ET.fromstring(soap_response_xml)
     except Exception:
-        print("WARN: retorno CAIXA nao e XML valido (nao foi possivel parsear).")
+        print("WARN: retorno CAIXA não é XML válido.")
         return
 
     def _find_text(tag_name: str) -> Optional[str]:
@@ -124,9 +124,9 @@ def _log_retorno(soap_response_xml: str) -> None:
     processado = _find_text("processado")
     if processado is not None:
         if processado.lower() == "true":
-            print("Retorno CAIXA OK (processado=true).")
+            print("Retorno tipo 4 OK (processado=true).")
         else:
-            print(f"Retorno CAIXA NAO OK (processado={processado}).")
+            print(f"Retorno tipo 4 NÃO OK (processado={processado}).")
 
     motivos = []
     for motivo in root.findall(".//{*}motivo"):
@@ -186,9 +186,10 @@ def _post_soap(xml: str, metodo: str) -> str:
 
         except CaixaFinalError:
             raise
+
         except Exception as e:
             last_exc = e
-            print(f"CAIXA {metodo} erro ({tentativa+1}/{MAX_RETRIES}).")
+            print(f"CAIXA {metodo} erro ({tentativa + 1}/{MAX_RETRIES}).")
 
             if tentativa < MAX_RETRIES - 1:
                 time.sleep(BACKOFF_SECONDS[tentativa])
@@ -251,22 +252,13 @@ def set_aceite_recusa(
     no_wo: str,
     aceite: bool,
     chamado_fornecedor: str,
-    descricao: str = "Aceite automatico via GLPI",
+    descricao: str = "Chamado aceito. Vamos atender em breve.",
+    previsaoatendimento: str = "P1 4hs, P2 8hs , P3 48hs",
+    responsavelatendimento: str = "Equipe Triagem",
 ) -> str:
-    """
-    CORREÇÃO:
-    - adiciona info_fornecedor (obrigatório)
-    - usa campos compatíveis com o WSDL (tipo_retorno etc.)
-    Obs.: aqui tratamos "aceite" como tipo_retorno=4 (padrão de aceite/recusa).
-          Se a CAIXA exigir valor diferente, troque AQUI sem mexer no resto.
-    """
     agora = datetime.now().strftime("%Y%m%d%H%M%S")
     id_arquivo = uuid.uuid4().hex.upper()
-
-    # convenção: 4 = aceite/recusa (ajuste se necessário)
-    tipo_retorno = "4"
-    sufixo = "ACEITE" if aceite else "RECUSA"
-    descricao_envio = f"{descricao} ({sufixo})"
+    tipo_retorno = "1" if aceite else "2"
 
     xml = f"""<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
         xmlns:urn="urn:GSC_RF010_FornecedorExterno_V401_WS">
@@ -294,6 +286,7 @@ def set_aceite_recusa(
 
             <urn:retorno>
               <urn:codigodobanco>104</urn:codigodobanco>
+
               <urn:chamado_caixa>
                 <urn:no_req>{limpar_texto_xml(no_req)}</urn:no_req>
                 <urn:no_wo>{limpar_texto_xml(no_wo)}</urn:no_wo>
@@ -303,9 +296,9 @@ def set_aceite_recusa(
 
               <urn:tipo_retorno>{tipo_retorno}</urn:tipo_retorno>
               <urn:chamado_fornecedor>{limpar_texto_xml(chamado_fornecedor)}</urn:chamado_fornecedor>
-              <urn:previsaoatendimento></urn:previsaoatendimento>
-              <urn:responsavelatendimento></urn:responsavelatendimento>
-              <urn:descricao>{limpar_texto_xml(descricao_envio)}</urn:descricao>
+              <urn:previsaoatendimento>{limpar_texto_xml(previsaoatendimento)}</urn:previsaoatendimento>
+              <urn:responsavelatendimento>{limpar_texto_xml(responsavelatendimento)}</urn:responsavelatendimento>
+              <urn:descricao>{limpar_texto_xml(descricao)}</urn:descricao>
             </urn:retorno>
 
           </urn:arquivoxml>
@@ -315,7 +308,7 @@ def set_aceite_recusa(
 
     print(f"Enviando XML para CAIXA (SetAceiteRecusa) aceite={aceite} idarquivo={id_arquivo}...")
     resp = _post_soap(xml, "SetAceiteRecusa")
-    _log_retorno(resp)
+    _log_retorno_tipo4(resp)
     return resp
 
 
@@ -349,6 +342,11 @@ def enviar_atualizacao(
     tipo_retorno: str | None = None,
     atendimento_inicio: str | None = None,
     atendimento_fim: str | None = None,
+    agendamento_data: str | None = None,
+    agendamento_contato: str | None = None,
+    agendamento_telefone: str | None = None,
+    tecnicoresponsavel: str | None = None,
+    previsaoatendimento: str | None = None,
     anexos: Optional[List[Dict[str, str]]] = None,
 ) -> str:
     descricao = limpar_texto_xml(descricao)
@@ -374,6 +372,12 @@ def enviar_atualizacao(
     else:
         atendimento_inicio = atendimento_inicio or ""
         atendimento_fim = atendimento_fim or ""
+
+    agendamento_data = agendamento_data or ""
+    agendamento_contato = agendamento_contato or ""
+    agendamento_telefone = agendamento_telefone or ""
+    tecnicoresponsavel = tecnicoresponsavel or ""
+    previsaoatendimento = previsaoatendimento or ""
 
     anexos_xml = _build_anexos_xml(anexos)
 
@@ -403,6 +407,7 @@ def enviar_atualizacao(
 
             <urn:retorno>
               <urn:codigodobanco>104</urn:codigodobanco>
+
               <urn:chamado_caixa>
                 <urn:no_req>{limpar_texto_xml(no_req)}</urn:no_req>
                 <urn:no_wo>{limpar_texto_xml(no_wo)}</urn:no_wo>
@@ -417,21 +422,25 @@ def enviar_atualizacao(
             </urn:retorno>
 
             <urn:agendamento>
-              <urn:data></urn:data>
-              <urn:contato></urn:contato>
-              <urn:telefone></urn:telefone>
+              <urn:data>{limpar_texto_xml(agendamento_data)}</urn:data>
+              <urn:contato>{limpar_texto_xml(agendamento_contato)}</urn:contato>
+              <urn:telefone>{limpar_texto_xml(agendamento_telefone)}</urn:telefone>
             </urn:agendamento>
 
             <urn:atendimento>
               <urn:data_inicio>{limpar_texto_xml(atendimento_inicio)}</urn:data_inicio>
               <urn:data_fim>{limpar_texto_xml(atendimento_fim)}</urn:data_fim>
               <urn:rat></urn:rat>
-              <urn:tecnicoresponsavel></urn:tecnicoresponsavel>
+              <urn:tecnicoresponsavel>{limpar_texto_xml(tecnicoresponsavel)}</urn:tecnicoresponsavel>
               <urn:numero_serie></urn:numero_serie>
-              <urn:previsaoatendimento></urn:previsaoatendimento>
+              <urn:previsaoatendimento>{limpar_texto_xml(previsaoatendimento)}</urn:previsaoatendimento>
             </urn:atendimento>
 
-            <urn:servicos></urn:servicos>
+            <urn:servicos>
+              <urn:codigo1></urn:codigo1>
+              <urn:descricao1></urn:descricao1>
+              <urn:valor1></urn:valor1>
+            </urn:servicos>
 
             {anexos_xml}
 
@@ -445,5 +454,5 @@ def enviar_atualizacao(
         f"tipo_retorno={tipo_retorno} status={status_fornecedor_norm or ''} anexos={len(anexos or [])}..."
     )
     resp = _post_soap(xml, "SetAtualizacao")
-    _log_retorno(resp)
+    _log_retorno_tipo4(resp)
     return resp

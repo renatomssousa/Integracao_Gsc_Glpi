@@ -1,7 +1,4 @@
-# glpi_updates.py
-# -*- coding: utf-8 -*-
-from __future__ import annotations
-
+import hashlib
 import json
 import os
 from typing import Dict, Any, Optional
@@ -15,8 +12,9 @@ def _default_state() -> Dict[str, Any]:
         "reiteracoes_processadas": [],
         "followups_enviados": {},
         "status_enviados": {},
+        "caixa_cancelados": {},
         "req_wo_bloqueados": {},
-        "documentos_enviados": {},
+        "documentos_enviados": {}
     }
 
 
@@ -40,39 +38,36 @@ def _save_state(state: Dict[str, Any]) -> None:
         json.dump(state, f, ensure_ascii=False, indent=2)
 
 
-def _key_req_wo(no_req: str, no_wo: str) -> str:
-    return f"{no_req}|{no_wo}"
+def _chave_reiteracao(no_req: str, no_wo: str, id_arquivo: str = "", descricao: str = "") -> str:
+    if id_arquivo:
+        return f"{no_req}|{no_wo}|{id_arquivo}"
 
-
-def _key_reit(no_req: str, no_wo: str, reit_id: str) -> str:
-    return f"{no_req}|{no_wo}|{reit_id}"
+    resumo = hashlib.sha1((descricao or "").strip().encode("utf-8")).hexdigest()[:20]
+    return f"{no_req}|{no_wo}|{resumo}"
 
 
 # ============================
 # MAPEAMENTO REQ/WO
 # ============================
 
-def registrar_mapeamento_req_wo(no_req: str, no_wo: str, ticket_id: int) -> None:
+def registrar_mapeamento_req_wo(no_req: str, no_wo: str, ticket_id: int):
     state = _load_state()
-    state["mapeamentos"][_key_req_wo(no_req, no_wo)] = int(ticket_id)
+    key = f"{no_req}|{no_wo}"
+    state["mapeamentos"][key] = ticket_id
     _save_state(state)
 
 
 def buscar_ticket_por_req_wo(no_req: str, no_wo: str) -> Optional[int]:
     state = _load_state()
-    v = state["mapeamentos"].get(_key_req_wo(no_req, no_wo))
-    return int(v) if v is not None else None
+    return state["mapeamentos"].get(f"{no_req}|{no_wo}")
 
 
-def buscar_req_wo_por_ticket(ticket_id: int) -> Optional[Dict[str, str]]:
+def buscar_req_wo_por_ticket(ticket_id: int):
     state = _load_state()
     for k, v in state["mapeamentos"].items():
-        try:
-            if int(v) == int(ticket_id):
-                no_req, no_wo = k.split("|", 1)
-                return {"no_req": no_req, "no_wo": no_wo}
-        except Exception:
-            continue
+        if v == ticket_id:
+            no_req, no_wo = k.split("|")
+            return {"no_req": no_req, "no_wo": no_wo}
     return None
 
 
@@ -80,38 +75,36 @@ def buscar_req_wo_por_ticket(ticket_id: int) -> Optional[Dict[str, str]]:
 # BLOQUEIO DEFINITIVO REQ/WO
 # ============================
 
-def bloquear_req_wo(no_req: str, no_wo: str, ticket_id: int, motivo: str) -> None:
+def bloquear_req_wo(no_req: str, no_wo: str, ticket_id: int, motivo: str):
     state = _load_state()
-    state["req_wo_bloqueados"][_key_req_wo(no_req, no_wo)] = {
-        "ticket_id": int(ticket_id),
-        "motivo": str(motivo),
+    key = f"{no_req}|{no_wo}"
+    state["req_wo_bloqueados"][key] = {
+        "ticket_id": ticket_id,
+        "motivo": motivo
     }
     _save_state(state)
 
 
 def req_wo_esta_bloqueado(no_req: str, no_wo: str) -> bool:
     state = _load_state()
-    return _key_req_wo(no_req, no_wo) in state.get("req_wo_bloqueados", {})
+    return f"{no_req}|{no_wo}" in state.get("req_wo_bloqueados", {})
 
 
 # ============================
-# REITERACOES (POR ID)
+# REITERAÇÕES
 # ============================
 
-def reiteracao_ja_processada(no_req: str, no_wo: str, reit_id: str) -> bool:
+def reiteracao_ja_processada(no_req: str, no_wo: str, id_arquivo: str = "", descricao: str = "") -> bool:
     state = _load_state()
-    old_key = _key_req_wo(no_req, no_wo)
-    new_key = _key_reit(no_req, no_wo, reit_id)
-    lst = state.get("reiteracoes_processadas", [])
-    return (old_key in lst) or (new_key in lst)
+    chave = _chave_reiteracao(no_req, no_wo, id_arquivo, descricao)
+    return chave in state["reiteracoes_processadas"]
 
 
-def marcar_reiteracao_processada(no_req: str, no_wo: str, reit_id: str) -> None:
+def marcar_reiteracao_processada(no_req: str, no_wo: str, id_arquivo: str = "", descricao: str = ""):
     state = _load_state()
-    key = _key_reit(no_req, no_wo, reit_id)
-    state.setdefault("reiteracoes_processadas", [])
-    if key not in state["reiteracoes_processadas"]:
-        state["reiteracoes_processadas"].append(key)
+    chave = _chave_reiteracao(no_req, no_wo, id_arquivo, descricao)
+    if chave not in state["reiteracoes_processadas"]:
+        state["reiteracoes_processadas"].append(chave)
     _save_state(state)
 
 
@@ -122,15 +115,15 @@ def marcar_reiteracao_processada(no_req: str, no_wo: str, reit_id: str) -> None:
 def followup_ja_enviado(ticket_id: int, followup_id: int) -> bool:
     state = _load_state()
     enviados = state["followups_enviados"].get(str(ticket_id), [])
-    return int(followup_id) in [int(x) for x in enviados if str(x).isdigit()]
+    return followup_id in enviados
 
 
-def marcar_followup_enviado(ticket_id: int, followup_id: int) -> None:
+def marcar_followup_enviado(ticket_id: int, followup_id: int):
     state = _load_state()
     tid = str(ticket_id)
     state["followups_enviados"].setdefault(tid, [])
-    if int(followup_id) not in state["followups_enviados"][tid]:
-        state["followups_enviados"][tid].append(int(followup_id))
+    if followup_id not in state["followups_enviados"][tid]:
+        state["followups_enviados"][tid].append(followup_id)
     _save_state(state)
 
 
@@ -143,7 +136,7 @@ def status_ja_enviado(ticket_id: int, status: str) -> bool:
     return state["status_enviados"].get(str(ticket_id)) == status
 
 
-def marcar_status_enviado(ticket_id: int, status: str) -> None:
+def marcar_status_enviado(ticket_id: int, status: str):
     state = _load_state()
     state["status_enviados"][str(ticket_id)] = status
     _save_state(state)
@@ -156,13 +149,13 @@ def marcar_status_enviado(ticket_id: int, status: str) -> None:
 def documento_ja_enviado(ticket_id: int, doc_id: int) -> bool:
     state = _load_state()
     enviados = state["documentos_enviados"].get(str(ticket_id), [])
-    return int(doc_id) in [int(x) for x in enviados if str(x).isdigit()]
+    return doc_id in enviados
 
 
-def marcar_documento_enviado(ticket_id: int, doc_id: int) -> None:
+def marcar_documento_enviado(ticket_id: int, doc_id: int):
     state = _load_state()
     tid = str(ticket_id)
     state["documentos_enviados"].setdefault(tid, [])
-    if int(doc_id) not in state["documentos_enviados"][tid]:
-        state["documentos_enviados"][tid].append(int(doc_id))
+    if doc_id not in state["documentos_enviados"][tid]:
+        state["documentos_enviados"][tid].append(doc_id)
     _save_state(state)

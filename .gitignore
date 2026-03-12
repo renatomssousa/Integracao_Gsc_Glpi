@@ -1,7 +1,7 @@
 venv/
-logs/
 __pycache__/
 *.pyc
-*.bak
+logs/
+*.log
 state.json
-
+oldstate.json
