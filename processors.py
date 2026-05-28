@@ -19,9 +19,17 @@ def _find_text_any_namespace(node, tag_name: str) -> str:
         return ""
 
     for el in node.iter():
-        if _local(el.tag) == tag_name:
+        if _local(el.tag).lower() == tag_name.lower():
             return (el.text or "").strip()
 
+    return ""
+
+
+def _find_first_text(node, *tag_names: str) -> str:
+    for tag_name in tag_names:
+        value = _find_text_any_namespace(node, tag_name)
+        if value:
+            return value
     return ""
 
 
@@ -38,7 +46,7 @@ def _extrair_anexos(anexos_node):
         lname = _local(ch.tag)
         txt = (ch.text or "").strip()
 
-        m_nome = re.match(r"^nome_arquivo(\d+)$", lname)
+        m_nome = re.match(r"^nome_arquivo(\d+)$", lname, flags=re.IGNORECASE)
         if m_nome:
             nomes[int(m_nome.group(1))] = txt
             continue
@@ -62,26 +70,41 @@ def _extrair_anexos(anexos_node):
         if conteudos.get(idx):
             anexos.append({
                 "nome": nomes[idx],
+                "filename": nomes[idx],
                 "base64": conteudos[idx]
             })
 
     return anexos
 
 
+def _parse_xml_or_none(xml: str):
+    if not xml or not str(xml).strip():
+        return None
+    try:
+        return ET.fromstring(xml)
+    except Exception:
+        return None
+
+
 def extrair_chamados_abertura(xml: str):
-    root = ET.fromstring(xml)
+    root = _parse_xml_or_none(xml)
+    if root is None:
+        return []
+
     chamados = []
 
     for item in root.findall(".//ns:getListValues", NS):
         id_arquivo = item.findtext(".//ns:info_arquivo/ns:idarquivo", "", NS).strip()
+        if not id_arquivo:
+            id_arquivo = _find_text_any_namespace(item, "idarquivo")
 
         no_req = item.findtext(".//ns:chamado_caixa/ns:no_req", "", NS).strip()
         no_wo = item.findtext(".//ns:chamado_caixa/ns:no_wo", "", NS).strip()
 
         if not no_req:
-            no_req = _find_text_any_namespace(item, "no_req")
+            no_req = _find_first_text(item, "no_req", "req")
         if not no_wo:
-            no_wo = _find_text_any_namespace(item, "no_wo")
+            no_wo = _find_first_text(item, "no_wo", "wo")
 
         nomereq = item.findtext(".//ns:tiporequisicao/ns:nomereq", "", NS).strip()
         if not nomereq:
@@ -146,12 +169,13 @@ Detalhes da Solicitação
 
 Origem: CAIXA Econômica Federal
 Fornecedor: PETACORP
+ID arquivo CAIXA: {id_arquivo}
 """.strip()
 
         chamados.append({
             "id_arquivo": id_arquivo,
-            "no_req": no_req,
-            "no_wo": no_wo,
+            "no_req": no_req.strip(),
+            "no_wo": no_wo.strip(),
             "titulo": titulo,
             "descricao": descricao,
             "anexos": anexos
@@ -161,38 +185,47 @@ Fornecedor: PETACORP
 
 
 def extrair_reiteracoes(xml: str):
-    root = ET.fromstring(xml)
+    root = _parse_xml_or_none(xml)
+    if root is None:
+        return []
+
     lista = []
 
     for item in root.findall(".//ns:getListValues", NS):
         id_arquivo = item.findtext(".//ns:info_arquivo/ns:idarquivo", "", NS).strip()
+        if not id_arquivo:
+            id_arquivo = _find_text_any_namespace(item, "idarquivo")
 
         no_req = item.findtext(".//ns:complemento/ns:chamado_caixa/ns:no_req", "", NS).strip()
         no_wo = item.findtext(".//ns:complemento/ns:chamado_caixa/ns:no_wo", "", NS).strip()
         descricao = item.findtext(".//ns:complemento/ns:descricao", "", NS).strip()
         chamado_fornecedor = item.findtext(".//ns:info_fornecedor/ns:chamado_fornecedor", "", NS).strip()
+        retornocaixa = item.findtext(".//ns:complemento/ns:retornocaixa", "", NS).strip()
 
         if not no_req:
-            no_req = _find_text_any_namespace(item, "no_req")
+            no_req = _find_first_text(item, "no_req", "req")
         if not no_wo:
-            no_wo = _find_text_any_namespace(item, "no_wo")
+            no_wo = _find_first_text(item, "no_wo", "wo")
         if not descricao:
             descricao = _find_text_any_namespace(item, "descricao")
         if not chamado_fornecedor:
             chamado_fornecedor = _find_text_any_namespace(item, "chamado_fornecedor")
+        if not retornocaixa:
+            retornocaixa = _find_text_any_namespace(item, "retornocaixa")
 
         if not descricao:
-            descricao = "Reiteracao recebida da CAIXA (sem descricao)."
+            descricao = "Reiteração recebida da CAIXA (sem descrição)."
 
         anexos_node = item.find(".//ns:anexos", NS)
         anexos = _extrair_anexos(anexos_node)
 
         lista.append({
-            "id_arquivo": id_arquivo,
+            "id_arquivo": id_arquivo.strip(),
             "no_req": no_req.strip(),
             "no_wo": no_wo.strip(),
             "descricao": descricao.strip(),
             "chamado_fornecedor": chamado_fornecedor.strip(),
+            "retornocaixa": retornocaixa.strip(),
             "anexos": anexos
         })
 

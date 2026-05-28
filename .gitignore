@@ -5,3 +5,26 @@ logs/
 *.pyc
 state.json
 oldstate.json
+
+# Logs e arquivos runtime
+logs/
+*.log
+*.xml
+__pycache__/
+*.pyc
+
+# Arquivos locais/sensíveis
+config.py
+state.json
+
+# Logs e runtime
+logs/
+*.log
+*.xml
+__pycache__/
+*.pyc
+
+# Sensíveis / locais
+config.py
+state.json
+*.bkp_*

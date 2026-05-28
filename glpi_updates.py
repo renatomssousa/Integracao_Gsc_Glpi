@@ -3,7 +3,9 @@ import json
 import os
 from typing import Dict, Any, Optional
 
-STATE_FILE = "state.json"
+# Para produção, deixe STATE_FILE=state.json ou STATE_FILE=state_prod.json no .env.
+# Para homologação, use outro arquivo. Ex.: STATE_FILE=state_hmp.json.
+STATE_FILE = os.getenv("STATE_FILE", "state.json")
 
 
 def _default_state() -> Dict[str, Any]:
@@ -39,6 +41,10 @@ def _save_state(state: Dict[str, Any]) -> None:
 
 
 def _chave_reiteracao(no_req: str, no_wo: str, id_arquivo: str = "", descricao: str = "") -> str:
+    no_req = (no_req or "").strip()
+    no_wo = (no_wo or "").strip()
+    id_arquivo = (id_arquivo or "").strip()
+
     if id_arquivo:
         return f"{no_req}|{no_wo}|{id_arquivo}"
 
@@ -52,46 +58,62 @@ def _chave_reiteracao(no_req: str, no_wo: str, id_arquivo: str = "", descricao: 
 
 def registrar_mapeamento_req_wo(no_req: str, no_wo: str, ticket_id: int):
     state = _load_state()
-    key = f"{no_req}|{no_wo}"
-    state["mapeamentos"][key] = ticket_id
+    key = f"{(no_req or '').strip()}|{(no_wo or '').strip()}"
+    state["mapeamentos"][key] = int(ticket_id)
     _save_state(state)
 
 
 def buscar_ticket_por_req_wo(no_req: str, no_wo: str) -> Optional[int]:
     state = _load_state()
-    return state["mapeamentos"].get(f"{no_req}|{no_wo}")
+    valor = state["mapeamentos"].get(f"{(no_req or '').strip()}|{(no_wo or '').strip()}")
+    try:
+        return int(valor) if valor is not None else None
+    except Exception:
+        return None
 
 
 def buscar_req_wo_por_ticket(ticket_id: int):
     state = _load_state()
+    ticket_id_int = int(ticket_id)
     for k, v in state["mapeamentos"].items():
-        if v == ticket_id:
-            no_req, no_wo = k.split("|")
-            return {"no_req": no_req, "no_wo": no_wo}
+        try:
+            if int(v) == ticket_id_int:
+                no_req, no_wo = k.split("|", 1)
+                return {"no_req": no_req, "no_wo": no_wo}
+        except Exception:
+            continue
     return None
 
 
 # ============================
-# BLOQUEIO DEFINITIVO REQ/WO
+# BLOQUEIO REQ/WO
 # ============================
 
 def bloquear_req_wo(no_req: str, no_wo: str, ticket_id: int, motivo: str):
     state = _load_state()
-    key = f"{no_req}|{no_wo}"
+    key = f"{(no_req or '').strip()}|{(no_wo or '').strip()}"
     state["req_wo_bloqueados"][key] = {
-        "ticket_id": ticket_id,
-        "motivo": motivo
+        "ticket_id": int(ticket_id),
+        "motivo": str(motivo or "")[:1000]
     }
     _save_state(state)
 
 
+def remover_bloqueio_req_wo(no_req: str, no_wo: str):
+    state = _load_state()
+    key = f"{(no_req or '').strip()}|{(no_wo or '').strip()}"
+    if key in state.get("req_wo_bloqueados", {}):
+        del state["req_wo_bloqueados"][key]
+        _save_state(state)
+
+
 def req_wo_esta_bloqueado(no_req: str, no_wo: str) -> bool:
     state = _load_state()
-    return f"{no_req}|{no_wo}" in state.get("req_wo_bloqueados", {})
+    return f"{(no_req or '').strip()}|{(no_wo or '').strip()}" in state.get("req_wo_bloqueados", {})
 
 
 # ============================
-# REITERA��ES
+# REITERAÇÕES
 # ============================
 
 def reiteracao_ja_processada(no_req: str, no_wo: str, id_arquivo: str = "", descricao: str = "") -> bool:
@@ -115,15 +137,16 @@ def marcar_reiteracao_processada(no_req: str, no_wo: str, id_arquivo: str = "", 
 def followup_ja_enviado(ticket_id: int, followup_id: int) -> bool:
     state = _load_state()
     enviados = state["followups_enviados"].get(str(ticket_id), [])
-    return followup_id in enviados
+    return int(followup_id) in enviados
 
 
 def marcar_followup_enviado(ticket_id: int, followup_id: int):
     state = _load_state()
     tid = str(ticket_id)
     state["followups_enviados"].setdefault(tid, [])
-    if followup_id not in state["followups_enviados"][tid]:
-        state["followups_enviados"][tid].append(followup_id)
+    followup_id_int = int(followup_id)
+    if followup_id_int not in state["followups_enviados"][tid]:
+        state["followups_enviados"][tid].append(followup_id_int)
     _save_state(state)
 
 
@@ -149,13 +172,14 @@ def marcar_status_enviado(ticket_id: int, status: str):
 def documento_ja_enviado(ticket_id: int, doc_id: int) -> bool:
     state = _load_state()
     enviados = state["documentos_enviados"].get(str(ticket_id), [])
-    return doc_id in enviados
+    return int(doc_id) in enviados
 
 
 def marcar_documento_enviado(ticket_id: int, doc_id: int):
     state = _load_state()
     tid = str(ticket_id)
     state["documentos_enviados"].setdefault(tid, [])
-    if doc_id not in state["documentos_enviados"][tid]:
-        state["documentos_enviados"][tid].append(doc_id)
+    doc_id_int = int(doc_id)
+    if doc_id_int not in state["documentos_enviados"][tid]:
+        state["documentos_enviados"][tid].append(doc_id_int)
     _save_state(state)
