@@ -12,9 +12,11 @@ logs/
 *.xml
 __pycache__/
 *.pyc
+.pytest_cache/
 
 # Arquivos locais/sensíveis
 config.py
+.env
 state.json
 
 # Logs e runtime

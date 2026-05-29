@@ -1,21 +1,6 @@
-from __future__ import annotations
+from pathlib import Path
+import sys
 
-from typing import Any, Dict, List, Optional
+sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
-
-def extrair_anexos_do_xml(reiteracao: Dict[str, Any]) -> Optional[List[Dict[str, str]]]:
-    """
-    Mantido como estava no seu fluxo: processors preenche 'anexos' no dict quando existir.
-    Aqui só normaliza caso venha em outro formato.
-    """
-    anexos = reiteracao.get("anexos")
-    if not anexos:
-        return None
-
-    saida: List[Dict[str, str]] = []
-    for ax in anexos:
-        filename = ax.get("filename") or ax.get("nome") or "anexo.bin"
-        b64 = ax.get("base64") or ""
-        if b64:
-            saida.append({"filename": filename, "base64": b64})
-    return saida or None
+from api_gsc_glpi.anexos import *  # noqa: F401,F403

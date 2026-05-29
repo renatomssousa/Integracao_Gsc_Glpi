@@ -1,9 +1,6 @@
-from typing import List, Dict
+from pathlib import Path
+import sys
 
-from caixa_client import buscar_reiteracoes
-from processors import extrair_reiteracoes
+sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
-
-def buscar_reiteracoes_caixa(capturado: bool = False) -> List[Dict]:
-    xml = buscar_reiteracoes(capturado=capturado)
-    return extrair_reiteracoes(xml)
+from api_gsc_glpi.caixa_reiteracoes import *  # noqa: F401,F403

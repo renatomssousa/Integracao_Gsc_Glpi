@@ -1,0 +1,26 @@
+[tool.poetry]
+name = "api-gsc-glpi"
+version = "0.1.0"
+description = "Integracao CAIXA GSC com GLPI"
+authors = ["Tyrion1606"]
+readme = "README.md"
+packages = [{ include = "api_gsc_glpi", from = "src" }]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+requests = "^2.31"
+lxml = "^5.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0"
+
+[tool.poetry.scripts]
+api-gsc-glpi = "api_gsc_glpi.__main__:main"
+
+[build-system]
+requires = ["poetry-core>=1.9.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
